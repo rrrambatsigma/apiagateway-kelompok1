@@ -9,16 +9,14 @@ def seed(db: Session) -> None:
         return
 
     users = [
-        User(name="Ahmad Fauzi", email="ahmad@example.com", role="admin"),
-        User(name="Budi Santoso", email="budi@example.com", role="user"),
-        User(name="Citra Ayu", email="citra@example.com", role="user"),
-        User(name="Dewi Lestari", email="dewi@example.com", role="user"),
-        User(name="Eko Prasetyo", email="eko@example.com", role="user"),
-        User(name="Fitri Handayani", email="fitri@example.com", role="user"),
-        User(name="Gita Permata", email="gita@example.com", role="guest"),
-        User(name="Hendra Wijaya", email="hendra@example.com", role="user"),
-        User(name="Intan Nuraini", email="intan@example.com", role="user"),
-        User(name="Joko Susilo", email="joko@example.com", role="guest"),
+        User(name="Ahmad Fauzi", email="ahmad@example.com", password="admin123", role="admin"),
+        User(name="Budi Santoso", email="budi@example.com", password="user123", role="user"),
+        User(name="Citra Ayu", email="citra@example.com", password="user123", role="user"),
+        User(name="Dewi Lestari", email="dewi@example.com", password="user123", role="user"),
+        User(name="Eko Prasetyo", email="eko@example.com", password="user123", role="user"),
+        User(name="Fitri Handayani", email="fitri@example.com", password="user123", role="user"),
+        User(name="Hendra Wijaya", email="hendra@example.com", password="user123", role="user"),
+        User(name="Intan Nuraini", email="intan@example.com", password="user123", role="user"),
     ]
 
     items = [
