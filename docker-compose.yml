@@ -1,3 +1,5 @@
+name: api-gateway
+
 services:
   db:
     image: postgres:16-alpine
@@ -18,14 +20,20 @@ services:
     # ports:
     #   - "5432:5432"   # uncomment hanya untuk debugging pakai psql
 
-  api:
+  # =====================================================================
+  # Multiple API instances untuk Load Balancing demo
+  # =====================================================================
+
+  api-1:
     build: ./services/api
-    container_name: api
+    container_name: api-1
+    hostname: api-1
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-api_gateway}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-this}
+      INSTANCE_NAME: api-1
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -34,8 +42,112 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - backend
+    command: >
+      sh -c "
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        PID=$$!
+        sleep 5
+        curl -X POST http://discovery:8001/register -H 'Content-Type: application/json' -d '{\"name\":\"api\",\"host\":\"api-1\",\"port\":8000}' || true
+        wait $$PID
+      "
+
+  api-2:
+    build: ./services/api
+    container_name: api-2
+    hostname: api-2
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-api_gateway}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-this}
+      INSTANCE_NAME: api-2
+    ports:
+      - "8002:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    command: >
+      sh -c "
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        PID=$$!
+        sleep 5
+        curl -X POST http://discovery:8001/register -H 'Content-Type: application/json' -d '{\"name\":\"api\",\"host\":\"api-2\",\"port\":8000}' || true
+        wait $$PID
+      "
+
+  api-3:
+    build: ./services/api
+    container_name: api-3
+    hostname: api-3
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-api_gateway}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-this}
+      INSTANCE_NAME: api-3
+    ports:
+      - "8003:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    command: >
+      sh -c "
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        PID=$$!
+        sleep 5
+        curl -X POST http://discovery:8001/register -H 'Content-Type: application/json' -d '{\"name\":\"api\",\"host\":\"api-3\",\"port\":8000}' || true
+        wait $$PID
+      "
+
+  # =====================================================================
+  # Service Discovery
+  # Health check aktif, circuit breaker, dan dynamic upstream update
+  # =====================================================================
+
+  discovery:
+    build: ./services/discovery
+    container_name: discovery
+    hostname: discovery
+    environment:
+      HEALTH_CHECK_INTERVAL: ${HEALTH_CHECK_INTERVAL:-10}
+      HEALTH_CHECK_TIMEOUT: ${HEALTH_CHECK_TIMEOUT:-5}
+      MAX_FAILURES: ${MAX_FAILURES:-3}
+      COOLDOWN_SECONDS: ${COOLDOWN_SECONDS:-30}
+      UPSTREAMS_FILE: /etc/nginx/conf.d/upstreams.conf
+      RELOAD_NGINX_ENABLED: "true"
+    ports:
+      - "8010:8001"
+    volumes:
+      - ./gateway/conf.d:/etc/nginx/conf.d:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  # =====================================================================
+  # API Gateway (Nginx)
+  # =====================================================================
 
   gateway:
     image: nginx:alpine
@@ -44,10 +156,21 @@ services:
       - "8080:80"
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./gateway/conf.d:/etc/nginx/conf.d:ro
+      - ./gateway/conf.d:/etc/nginx/conf.d:rw
     depends_on:
-      api:
+      discovery:
         condition: service_healthy
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+      api-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - backend
 
