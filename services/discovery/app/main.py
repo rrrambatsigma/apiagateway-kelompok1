@@ -47,6 +47,9 @@ RELOAD_NGINX_ENABLED = os.getenv("RELOAD_NGINX_ENABLED", "true").lower() == "tru
 
 app = FastAPI(title="Service Discovery", version="1.0.0")
 
+DOCKER_ENABLED = False
+logger.info("Manual registration mode enabled")
+
 
 @app.on_event("startup")
 async def startup_event():
