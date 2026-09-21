@@ -6,6 +6,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 
 $BASE_URL = "http://localhost:8080"
+$DISCOVERY_URL = "http://localhost:8500"
 
 $EMAIL = "ahmad@example.com"
 $PASSWORD = "admin123"
@@ -13,15 +14,88 @@ $PASSWORD = "admin123"
 Write-Host ""
 Write-Host "============================================================"
 Write-Host " API GATEWAY - TESTING"
-Write-Host " Load Balancing, Rate Limiter & Request Validation"
+Write-Host " Service Discovery, Load Balancing, Rate Limiter & Request Validation"
 Write-Host "============================================================"
 Write-Host ""
 
 # =====================================================================
-# 1. INSTANCE CHECK - DAPATKAN NAMA INSTANCE
+# 1. SERVICE DISCOVERY - REGISTRY CHECK
 # =====================================================================
 
-Write-Host "[1] INSTANCE CHECK"
+Write-Host "[1] SERVICE DISCOVERY - REGISTRY CHECK"
+Write-Host "------------------------------------------------------------"
+
+$maxRetries = 5
+$retryDelay = 3
+$discovered = $false
+
+for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+
+    try {
+
+        $registryResponse = Invoke-RestMethod `
+            -Uri "$DISCOVERY_URL/registry" `
+            -Method GET `
+            -UseBasicParsing
+
+        $instanceCount = $registryResponse.count
+        $instances = $registryResponse.instances
+        $discovered = $true
+        break
+
+    }
+    catch {
+
+        if ($attempt -lt $maxRetries) {
+            Write-Host "  Attempt $attempt/$maxRetries - Discovery belum ready, menunggu ${retryDelay}s..."
+            Start-Sleep -Seconds $retryDelay
+        }
+
+    }
+
+}
+
+Write-Host ""
+
+if ($discovered) {
+
+    Write-Host "DISCOVERY STATUS    : OK"
+    Write-Host "Jumlah instance     : $instanceCount"
+    Write-Host ""
+
+    foreach ($inst in $instances) {
+        Write-Host "  - $($inst.name) @ $($inst.host):$($inst.port) [state: $($inst.state)]"
+    }
+
+    Write-Host ""
+
+    if ($instanceCount -ge 3) {
+        Write-Host "SERVICE DISCOVERY   : SUCCESS"
+        Write-Host "Semua instance terdaftar: YES"
+    }
+    else {
+        Write-Host "SERVICE DISCOVERY   : CHECK"
+        Write-Host "Hanya $instanceCount instance ditemukan"
+    }
+
+}
+else {
+
+    Write-Host "SERVICE DISCOVERY   : FAILED"
+    Write-Host "Tidak bisa mengakses discovery service di $DISCOVERY_URL setelah $maxRetries percobaan"
+    Write-Host "Pastikan container discovery berjalan: docker compose up -d discovery"
+
+}
+
+Write-Host ""
+
+Start-Sleep -Seconds 2
+
+# =====================================================================
+# 2. INSTANCE CHECK - DAPATKAN NAMA INSTANCE
+# =====================================================================
+
+Write-Host "[2] INSTANCE CHECK"
 Write-Host "------------------------------------------------------------"
 
 try {
@@ -43,10 +117,10 @@ catch {
 Write-Host ""
 
 # =====================================================================
-# 2. LOAD BALANCING TEST
+# 3. LOAD BALANCING TEST
 # =====================================================================
 
-Write-Host "[2] LOAD BALANCING TEST"
+Write-Host "[3] LOAD BALANCING TEST"
 Write-Host "------------------------------------------------------------"
 Write-Host "Mengirim 9 request untuk melihat distribusi ke 3 instance..."
 Write-Host ""
@@ -107,10 +181,10 @@ Write-Host ""
 Start-Sleep -Seconds 2
 
 # =====================================================================
-# 3. LOGIN ADMIN
+# 4. LOGIN ADMIN
 # =====================================================================
 
-Write-Host "[3] LOGIN ADMIN"
+Write-Host "[4] LOGIN ADMIN"
 Write-Host "------------------------------------------------------------"
 
 $loginBody = @{
@@ -155,10 +229,10 @@ $headers = @{
 Write-Host ""
 
 # =====================================================================
-# 4. RATE LIMITER - SUCCESS TEST
+# 5. RATE LIMITER - SUCCESS TEST
 # =====================================================================
 
-Write-Host "[4] RATE LIMITER - SUCCESS TEST"
+Write-Host "[5] RATE LIMITER - SUCCESS TEST"
 Write-Host "------------------------------------------------------------"
 
 try {
@@ -196,10 +270,10 @@ catch {
 Write-Host ""
 
 # =====================================================================
-# 5. RATE LIMITER - FAILED TEST
+# 6. RATE LIMITER - FAILED TEST
 # =====================================================================
 
-Write-Host "[5] RATE LIMITER - FAILED TEST"
+Write-Host "[6] RATE LIMITER - FAILED TEST"
 Write-Host "------------------------------------------------------------"
 
 Write-Host "Mengirim 15 request secara cepat..."
@@ -253,10 +327,10 @@ Write-Host "Lanjut ke Request Validation."
 Write-Host ""
 
 # =====================================================================
-# 6. REQUEST VALIDATION - SUCCESS TEST
+# 7. REQUEST VALIDATION - SUCCESS TEST
 # =====================================================================
 
-Write-Host "[6] REQUEST VALIDATION - SUCCESS TEST"
+Write-Host "[7] REQUEST VALIDATION - SUCCESS TEST"
 Write-Host "------------------------------------------------------------"
 
 $validBody = @{
@@ -313,10 +387,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 7. REQUEST VALIDATION - INVALID CONTENT TYPE
+# 8. REQUEST VALIDATION - INVALID CONTENT TYPE
 # =====================================================================
 
-Write-Host "[7] REQUEST VALIDATION - INVALID CONTENT TYPE"
+Write-Host "[8] REQUEST VALIDATION - INVALID CONTENT TYPE"
 Write-Host "------------------------------------------------------------"
 
 $invalidContentTypeBody = '{"name":"Laptop Asus ROG","price":15000000,"stock":10}'
@@ -359,10 +433,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 8. REQUEST VALIDATION - BODY > 1 MB
+# 9. REQUEST VALIDATION - BODY > 1 MB
 # =====================================================================
 
-Write-Host "[8] REQUEST VALIDATION - BODY > 1 MB"
+Write-Host "[9] REQUEST VALIDATION - BODY > 1 MB"
 Write-Host "------------------------------------------------------------"
 
 $largeText = "A" * 1100000
@@ -413,10 +487,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 9. BACKEND SCHEMA VALIDATION
+# 10. BACKEND SCHEMA VALIDATION
 # =====================================================================
 
-Write-Host "[9] BACKEND SCHEMA VALIDATION - INVALID JSON DATA"
+Write-Host "[10] BACKEND SCHEMA VALIDATION - INVALID JSON DATA"
 Write-Host "------------------------------------------------------------"
 
 $invalidSchemaBody = @{
@@ -469,32 +543,33 @@ Write-Host " FINAL SUMMARY"
 Write-Host "============================================================"
 
 Write-Host ""
-Write-Host "INSTANCE CHECK"
-Write-Host "  /instance endpoint         : OK"
+Write-Host "SERVICE DISCOVERY"
+Write-Host "  Registry endpoint         : $DISCOVERY_URL/registry"
+Write-Host "  Instance terdaftar        : $instanceCount"
 
 Write-Host ""
 Write-Host "LOAD BALANCING"
-Write-Host "  Instance ditemukan         : $($uniqueInstances.Count)"
-Write-Host "  Distribusi                 : $($uniqueInstances -join ', ')"
+Write-Host "  Instance ditemukan        : $($uniqueInstances.Count)"
+Write-Host "  Distribusi                : $($uniqueInstances -join ', ')"
 
 Write-Host ""
 Write-Host "AUTHENTICATION"
-Write-Host "  Admin authentication       : SUCCESS"
+Write-Host "  Admin authentication      : SUCCESS"
 
 Write-Host ""
 Write-Host "RATE LIMITER"
-Write-Host "  Normal request             : 200"
-Write-Host "  Excessive request          : 429"
+Write-Host "  Normal request            : 200"
+Write-Host "  Excessive request         : 429"
 
 Write-Host ""
 Write-Host "REQUEST VALIDATION"
-Write-Host "  Valid JSON                 : 200"
-Write-Host "  Invalid Content-Type       : 415"
-Write-Host "  Body > 1 MB                : 413"
+Write-Host "  Valid JSON                : 200"
+Write-Host "  Invalid Content-Type      : 415"
+Write-Host "  Body > 1 MB               : 413"
 
 Write-Host ""
 Write-Host "BACKEND VALIDATION"
-Write-Host "  Invalid schema             : 422"
+Write-Host "  Invalid schema            : 422"
 
 Write-Host ""
 Write-Host "============================================================"
