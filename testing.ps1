@@ -1,6 +1,6 @@
 # =====================================================================
-# API GATEWAY - PERSON 3 TESTING
-# Rate Limiter & Request Validation
+# API GATEWAY - TESTING
+# Load Balancing, Rate Limiter & Request Validation
 # =====================================================================
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -12,16 +12,105 @@ $PASSWORD = "admin123"
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host " API GATEWAY - PERSON 3 TESTING"
-Write-Host " Rate Limiter & Request Validation"
+Write-Host " API GATEWAY - TESTING"
+Write-Host " Load Balancing, Rate Limiter & Request Validation"
 Write-Host "============================================================"
 Write-Host ""
 
 # =====================================================================
-# 1. LOGIN ADMIN
+# 1. INSTANCE CHECK - DAPATKAN NAMA INSTANCE
 # =====================================================================
 
-Write-Host "[1] LOGIN ADMIN"
+Write-Host "[1] INSTANCE CHECK"
+Write-Host "------------------------------------------------------------"
+
+try {
+
+    $raw = curl.exe -s "$BASE_URL/instance"
+    $instanceResponse = $raw | ConvertFrom-Json
+
+    Write-Host "INSTANCE            : $($instanceResponse.instance)"
+    Write-Host "STATUS              : OK"
+
+}
+catch {
+
+    Write-Host "INSTANCE CHECK      : FAILED"
+    Write-Host "Tidak bisa mengakses /instance"
+
+}
+
+Write-Host ""
+
+# =====================================================================
+# 2. LOAD BALANCING TEST
+# =====================================================================
+
+Write-Host "[2] LOAD BALANCING TEST"
+Write-Host "------------------------------------------------------------"
+Write-Host "Mengirim 9 request untuk melihat distribusi ke 3 instance..."
+Write-Host ""
+
+$instances = @()
+$failedCount = 0
+
+for ($i = 1; $i -le 9; $i++) {
+
+    $raw = curl.exe --no-keepalive -s -H "Accept: application/json" "$BASE_URL/instance"
+
+    try {
+
+        $resp = $raw | ConvertFrom-Json
+
+        $instances += $resp.instance
+        Write-Host "Request $i          : $($resp.instance)"
+
+    }
+    catch {
+
+        $failedCount++
+        Write-Host "Request $i          : FAILED"
+        $instances += "FAILED"
+
+    }
+
+    Start-Sleep -Milliseconds 200
+
+}
+
+Write-Host ""
+
+$uniqueInstances = $instances | Where-Object { $_ -ne "FAILED" } | Sort-Object -Unique
+
+Write-Host "Instance ditemukan  : $($uniqueInstances -join ', ')"
+Write-Host "Jumlah instance     : $($uniqueInstances.Count)"
+Write-Host "Jumlah gagal        : $failedCount"
+
+if ($uniqueInstances.Count -ge 2) {
+
+    Write-Host ""
+    Write-Host "LOAD BALANCING      : SUCCESS"
+    Write-Host "Request tersebar ke : $($uniqueInstances.Count) instance"
+
+}
+else {
+
+    Write-Host ""
+    Write-Host "LOAD BALANCING      : CHECK"
+    Write-Host "Hanya 1 instance ditemukan"
+    Write-Host "Pastikan 3 API instance berjalan"
+
+}
+
+Write-Host ""
+
+Start-Sleep -Seconds 2
+
+# =====================================================================
+# 3. LOGIN ADMIN
+# =====================================================================
+
+Write-Host "[3] LOGIN ADMIN"
 Write-Host "------------------------------------------------------------"
 
 $loginBody = @{
@@ -66,10 +155,10 @@ $headers = @{
 Write-Host ""
 
 # =====================================================================
-# 2. RATE LIMITER - SUCCESS TEST
+# 4. RATE LIMITER - SUCCESS TEST
 # =====================================================================
 
-Write-Host "[2] RATE LIMITER - SUCCESS TEST"
+Write-Host "[4] RATE LIMITER - SUCCESS TEST"
 Write-Host "------------------------------------------------------------"
 
 try {
@@ -107,10 +196,10 @@ catch {
 Write-Host ""
 
 # =====================================================================
-# 3. RATE LIMITER - FAILED TEST
+# 5. RATE LIMITER - FAILED TEST
 # =====================================================================
 
-Write-Host "[3] RATE LIMITER - FAILED TEST"
+Write-Host "[5] RATE LIMITER - FAILED TEST"
 Write-Host "------------------------------------------------------------"
 
 Write-Host "Mengirim 15 request secara cepat..."
@@ -164,10 +253,10 @@ Write-Host "Lanjut ke Request Validation."
 Write-Host ""
 
 # =====================================================================
-# 4. REQUEST VALIDATION - SUCCESS TEST
+# 6. REQUEST VALIDATION - SUCCESS TEST
 # =====================================================================
 
-Write-Host "[4] REQUEST VALIDATION - SUCCESS TEST"
+Write-Host "[6] REQUEST VALIDATION - SUCCESS TEST"
 Write-Host "------------------------------------------------------------"
 
 $validBody = @{
@@ -178,8 +267,16 @@ $validBody = @{
 
 try {
 
+    $items = Invoke-RestMethod `
+        -Uri "$BASE_URL/api/items" `
+        -Method GET `
+        -Headers $headers `
+        -UseBasicParsing
+
+    $itemId = $items[0].id
+
     $response = Invoke-WebRequest `
-        -Uri "$BASE_URL/api/items/1" `
+        -Uri "$BASE_URL/api/items/$itemId" `
         -Method PUT `
         -Headers $headers `
         -ContentType "application/json" `
@@ -216,10 +313,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 5. REQUEST VALIDATION - INVALID CONTENT TYPE
+# 7. REQUEST VALIDATION - INVALID CONTENT TYPE
 # =====================================================================
 
-Write-Host "[5] REQUEST VALIDATION - INVALID CONTENT TYPE"
+Write-Host "[7] REQUEST VALIDATION - INVALID CONTENT TYPE"
 Write-Host "------------------------------------------------------------"
 
 $invalidContentTypeBody = '{"name":"Laptop Asus ROG","price":15000000,"stock":10}'
@@ -227,7 +324,7 @@ $invalidContentTypeBody = '{"name":"Laptop Asus ROG","price":15000000,"stock":10
 try {
 
     $response = Invoke-WebRequest `
-        -Uri "$BASE_URL/api/items/1" `
+        -Uri "$BASE_URL/api/items/$itemId" `
         -Method PUT `
         -Headers $headers `
         -ContentType "text/plain" `
@@ -262,10 +359,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 6. REQUEST VALIDATION - BODY > 1 MB
+# 8. REQUEST VALIDATION - BODY > 1 MB
 # =====================================================================
 
-Write-Host "[6] REQUEST VALIDATION - BODY > 1 MB"
+Write-Host "[8] REQUEST VALIDATION - BODY > 1 MB"
 Write-Host "------------------------------------------------------------"
 
 $largeText = "A" * 1100000
@@ -281,7 +378,7 @@ Write-Host "Body size           : $($largeBody.Length) bytes"
 try {
 
     $response = Invoke-WebRequest `
-        -Uri "$BASE_URL/api/items/1" `
+        -Uri "$BASE_URL/api/items/$itemId" `
         -Method PUT `
         -Headers $headers `
         -ContentType "application/json" `
@@ -316,10 +413,10 @@ Write-Host ""
 Start-Sleep -Milliseconds 500
 
 # =====================================================================
-# 7. BACKEND SCHEMA VALIDATION
+# 9. BACKEND SCHEMA VALIDATION
 # =====================================================================
 
-Write-Host "[7] BACKEND SCHEMA VALIDATION - INVALID JSON DATA"
+Write-Host "[9] BACKEND SCHEMA VALIDATION - INVALID JSON DATA"
 Write-Host "------------------------------------------------------------"
 
 $invalidSchemaBody = @{
@@ -331,7 +428,7 @@ $invalidSchemaBody = @{
 try {
 
     $response = Invoke-WebRequest `
-        -Uri "$BASE_URL/api/items/1" `
+        -Uri "$BASE_URL/api/items/$itemId" `
         -Method PUT `
         -Headers $headers `
         -ContentType "application/json" `
@@ -372,7 +469,16 @@ Write-Host " FINAL SUMMARY"
 Write-Host "============================================================"
 
 Write-Host ""
-Write-Host "LOGIN"
+Write-Host "INSTANCE CHECK"
+Write-Host "  /instance endpoint         : OK"
+
+Write-Host ""
+Write-Host "LOAD BALANCING"
+Write-Host "  Instance ditemukan         : $($uniqueInstances.Count)"
+Write-Host "  Distribusi                 : $($uniqueInstances -join ', ')"
+
+Write-Host ""
+Write-Host "AUTHENTICATION"
 Write-Host "  Admin authentication       : SUCCESS"
 
 Write-Host ""

@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .models import Item, User
@@ -32,6 +33,9 @@ def seed(db: Session) -> None:
         Item(name="Microphone USB", price=850000, stock=15),
     ]
 
-    db.add_all(users)
-    db.add_all(items)
-    db.commit()
+    try:
+        db.add_all(users)
+        db.add_all(items)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
