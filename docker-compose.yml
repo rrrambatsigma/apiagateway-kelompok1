@@ -1,5 +1,3 @@
-name: api-gateway
-
 services:
   db:
     image: postgres:16-alpine
@@ -20,11 +18,7 @@ services:
     # ports:
     #   - "5432:5432"   # uncomment hanya untuk debugging pakai psql
 
-  # =====================================================================
-  # API Service
-  # =====================================================================
-
-  api:
+  api-1:
     build: ./services/api
     container_name: api-1
     environment:
@@ -75,52 +69,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
     networks:
       - backend
-    command: >
-      sh -c "
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-        PID=$$!
-        sleep 8
-        curl -X POST http://discovery:8001/register -H 'Content-Type: application/json' -d '{\"name\":\"api\",\"host\":\"api\",\"port\":8000}' || true
-        wait $$PID
-      "
-
-  # =====================================================================
-  # Service Discovery
-  # Health check aktif, circuit breaker, dan dynamic upstream update
-  # =====================================================================
-
-  discovery:
-    build: ./services/discovery
-    container_name: discovery
-    hostname: discovery
-    environment:
-      HEALTH_CHECK_INTERVAL: ${HEALTH_CHECK_INTERVAL:-10}
-      HEALTH_CHECK_TIMEOUT: ${HEALTH_CHECK_TIMEOUT:-5}
-      MAX_FAILURES: ${MAX_FAILURES:-3}
-      COOLDOWN_SECONDS: ${COOLDOWN_SECONDS:-30}
-      UPSTREAMS_FILE: /etc/nginx/conf.d/upstreams.conf
-      RELOAD_NGINX_ENABLED: "true"
-    ports:
-      - "8010:8001"
-    volumes:
-      - ./gateway/conf.d:/etc/nginx/conf.d:rw
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - db
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - backend
-
-  # =====================================================================
-  # API Gateway (Nginx)
-  # =====================================================================
 
   gateway:
     image: nginx:alpine
@@ -129,17 +79,14 @@ services:
       - "8080:80"
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./gateway/conf.d:/etc/nginx/conf.d:rw
+      - ./gateway/conf.d:/etc/nginx/conf.d:ro
     depends_on:
-      discovery:
+      api-1:
         condition: service_healthy
-      api:
+      api-2:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      api-3:
+        condition: service_healthy
     networks:
       - backend
 
