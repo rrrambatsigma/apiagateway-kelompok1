@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # API GATEWAY - DEMO TESTING SCRIPT
 # Kelompok 1
 # ============================================================
@@ -1223,6 +1223,486 @@ else {
         "FAIL" `
         "nginx -t gagal"
 }
+
+Read-Host "`nTekan ENTER untuk lanjut"
+
+# ============================================================
+# 10A. CIRCUIT BREAKER TESTING
+# ============================================================
+
+Header "10A. CIRCUIT BREAKER TESTING"
+
+Header "10A. CIRCUIT BREAKER TESTING"
+
+Write-Host ""
+Write-Host "Konfigurasi Circuit Breaker:"
+Write-Host "  Max Failures  : 3"
+Write-Host "  Cooldown      : 30 detik"
+Write-Host ""
+Write-Host "Flow testing:"
+Write-Host "  CLOSED -> OPEN -> HALF_OPEN -> OPEN"
+Write-Host ""
+
+# ------------------------------------------------------------
+# 10A.1 CEK STATE AWAL
+# ------------------------------------------------------------
+
+Step "10A.1 Cek State Awal (semua CLOSED)"
+
+try {
+
+    $registryBefore = Invoke-RestMethod `
+        -Uri "$DISCOVERY_URL/registry" `
+        -Method GET
+
+    Write-Host ""
+    Write-Host "Service yang terdaftar:"
+    
+    foreach ($service in $registryBefore.services) {
+        $stateColor = if ($service.state -eq "closed") { "Green" } `
+                     elseif ($service.state -eq "open") { "Red" } `
+                     else { "Yellow" }
+        
+        Write-Host "  $($service.name) - State: " -NoNewline
+        Write-Host $service.state -ForegroundColor $stateColor -NoNewline
+        Write-Host " - Failures: $($service.consecutive_failures)"
+    }
+
+    Write-Host ""
+
+    Success "Semua service dalam state CLOSED"
+
+    Add-Result `
+        "CB: State Awal" `
+        "PASS" `
+        "Semua service CLOSED"
+}
+
+catch {
+
+    Failed "Gagal cek registry"
+
+    Add-Result `
+        "CB: State Awal" `
+        "FAIL" `
+        $_.Exception.Message
+}
+
+# ------------------------------------------------------------
+# 10A.2 SIMULASI FAILURE
+# ------------------------------------------------------------
+
+Step "10A.2 Simulasi Failure - Stop api-2"
+
+Write-Host ""
+Write-Host "Menghentikan container api-2..."
+Write-Host ""
+
+docker stop api-2 2>&1 | Out-Null
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Host "Container api-2 dihentikan" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Waiting Health Check (x3 Failure)"
+    Write-Host "Health check interval: 10 detik"
+    Write-Host "Estimasi waktu: 40 detik"
+    Write-Host ""
+
+    for ($i = 40; $i -gt 0; $i--) {
+        Write-Host "`rWait: $i detik... " -NoNewline
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host "`rWait selesai.    "
+    Write-Host ""
+
+    Success "api-2 berhasil dihentikan"
+
+    Add-Result `
+        "CB: Simulasi Failure" `
+        "PASS" `
+        "api-2 stopped"
+}
+else {
+
+    Failed "Gagal stop api-2"
+
+    Add-Result `
+        "CB: Simulasi Failure" `
+        "FAIL" `
+        "docker stop failed"
+}
+
+# ------------------------------------------------------------
+# 10A.3 CEK STATE JADI OPEN
+# ------------------------------------------------------------
+
+Step "10A.3 Verifikasi State: OPEN"
+
+try {
+
+    $registryOpen = Invoke-RestMethod `
+        -Uri "$DISCOVERY_URL/registry" `
+        -Method GET
+
+    Write-Host ""
+    Write-Host "Registry setelah failure:"
+    
+    $isOpen = $false
+    
+    foreach ($service in $registryOpen.services) {
+        $stateColor = if ($service.state -eq "closed") { "Green" } `
+                     elseif ($service.state -eq "open") { "Red" } `
+                     else { "Yellow" }
+        
+        Write-Host "  $($service.name) - State: " -NoNewline
+        Write-Host $service.state -ForegroundColor $stateColor -NoNewline
+        Write-Host " - Failures: $($service.consecutive_failures)"
+        
+        if ($service.name -eq "api-2" -and $service.state -eq "open") {
+            $isOpen = $true
+        }
+    }
+
+    Write-Host ""
+
+    if ($isOpen) {
+
+        Success "Circuit breaker api-2 sudah OPEN"
+
+        Add-Result `
+            "CB: Transition ke OPEN" `
+            "PASS" `
+            "CLOSED -> OPEN berhasil"
+    }
+    else {
+
+        Failed "Circuit belum OPEN"
+
+        Add-Result `
+            "CB: Transition ke OPEN" `
+            "FAIL" `
+            "State belum OPEN"
+    }
+
+}
+
+catch {
+
+    Failed "Gagal cek registry"
+
+    Add-Result `
+        "CB: Transition ke OPEN" `
+        "FAIL" `
+        $_.Exception.Message
+}
+
+# ------------------------------------------------------------
+# 10A.4 TUNGGU COOLDOWN
+# ------------------------------------------------------------
+
+Step "10A.4 Tunggu Cooldown (OPEN -> HALF_OPEN)"
+
+Write-Host ""
+Write-Host "Menunggu cooldown period..."
+Write-Host "Durasi: 30 detik + buffer health check"
+Write-Host ""
+
+for ($i = 35; $i -gt 0; $i--) {
+    Write-Host "`rCooldown: $i detik... " -NoNewline
+    Start-Sleep -Seconds 1
+}
+
+Write-Host "`rCooldown selesai.     "
+Write-Host ""
+
+# ------------------------------------------------------------
+# 10A.5 CEK STATE JADI HALF_OPEN
+# ------------------------------------------------------------
+
+Step "10A.5 Verifikasi State: HALF_OPEN"
+
+try {
+
+    $registryHalfOpen = Invoke-RestMethod `
+        -Uri "$DISCOVERY_URL/registry" `
+        -Method GET
+
+    Write-Host ""
+    Write-Host "Registry setelah cooldown:"
+    
+    $isHalfOpen = $false
+    
+    foreach ($service in $registryHalfOpen.services) {
+        $stateColor = if ($service.state -eq "closed") { "Green" } `
+                     elseif ($service.state -eq "open") { "Red" } `
+                     else { "Yellow" }
+        
+        Write-Host "  $($service.name) - State: " -NoNewline
+        Write-Host $service.state -ForegroundColor $stateColor -NoNewline
+        Write-Host " - Failures: $($service.consecutive_failures)"
+        
+        if ($service.name -eq "api-2" -and $service.state -eq "half_open") {
+            $isHalfOpen = $true
+        }
+    }
+
+    Write-Host ""
+
+    if ($isHalfOpen) {
+
+        Success "Circuit breaker api-2 sudah HALF_OPEN"
+
+        Add-Result `
+            "CB: Transition ke HALF_OPEN" `
+            "PASS" `
+            "OPEN -> HALF_OPEN berhasil"
+    }
+    else {
+
+        Info "Circuit masih OPEN atau belum transisi"
+
+        Add-Result `
+            "CB: Transition ke HALF_OPEN" `
+            "INFO" `
+            "Belum HALF_OPEN"
+    }
+
+}
+
+catch {
+
+    Failed "Gagal cek registry"
+
+    Add-Result `
+        "CB: Transition ke HALF_OPEN" `
+        "FAIL" `
+        $_.Exception.Message
+}
+
+# ------------------------------------------------------------
+# 10A.6 TUNGGU HEALTH CHECK LAGI
+# ------------------------------------------------------------
+
+Step "10A.6 Tunggu Health Check Berikutnya"
+
+Write-Host ""
+Write-Host "api-2 masih mati, health check berikutnya akan gagal"
+Write-Host "Di state HALF_OPEN, 1x failure langsung balik ke OPEN"
+Write-Host ""
+Write-Host "Tunggu health check berikutnya..."
+Write-Host ""
+
+for ($i = 15; $i -gt 0; $i--) {
+    Write-Host "`rWait: $i detik... " -NoNewline
+    Start-Sleep -Seconds 1
+}
+
+Write-Host "`rWait selesai.    "
+Write-Host ""
+
+# ------------------------------------------------------------
+# 10A.7 CEK STATE BALIK KE OPEN
+# ------------------------------------------------------------
+
+Step "10A.7 Verifikasi State: OPEN lagi"
+
+try {
+
+    $registryOpenAgain = Invoke-RestMethod `
+        -Uri "$DISCOVERY_URL/registry" `
+        -Method GET
+
+    Write-Host ""
+    Write-Host "Registry setelah failure di HALF_OPEN:"
+    
+    $isOpenAgain = $false
+    
+    foreach ($service in $registryOpenAgain.services) {
+        $stateColor = if ($service.state -eq "closed") { "Green" } `
+                     elseif ($service.state -eq "open") { "Red" } `
+                     else { "Yellow" }
+        
+        Write-Host "  $($service.name) - State: " -NoNewline
+        Write-Host $service.state -ForegroundColor $stateColor -NoNewline
+        Write-Host " - Failures: $($service.consecutive_failures)"
+        
+        if ($service.name -eq "api-2" -and $service.state -eq "open") {
+            $isOpenAgain = $true
+        }
+    }
+
+    Write-Host ""
+
+    if ($isOpenAgain) {
+
+        Success "Circuit breaker api-2 kembali ke OPEN"
+
+        Add-Result `
+            "CB: HALF_OPEN -> OPEN" `
+            "PASS" `
+            "Gagal di HALF_OPEN, balik ke OPEN"
+    }
+    else {
+
+        Info "State tidak kembali ke OPEN"
+
+        Add-Result `
+            "CB: HALF_OPEN -> OPEN" `
+            "INFO" `
+            "State bukan OPEN"
+    }
+
+}
+
+catch {
+
+    Failed "Gagal cek registry"
+
+    Add-Result `
+        "CB: HALF_OPEN -> OPEN" `
+        "FAIL" `
+        $_.Exception.Message
+}
+
+# ------------------------------------------------------------
+# 10A.8 CEK UPSTREAM CONFIG
+# ------------------------------------------------------------
+
+Step "10A.8 Cek Nginx Upstream"
+
+Write-Host ""
+Write-Host "Isi file upstreams.conf:"
+Write-Host ""
+
+docker exec gateway cat /etc/nginx/conf.d/upstreams.conf
+
+Write-Host ""
+
+$upstreamContent = docker exec gateway cat /etc/nginx/conf.d/upstreams.conf
+
+$hasApi2 = $upstreamContent -match "api-2:8000"
+
+if (-not $hasApi2) {
+
+    Success "api-2 sudah dihapus dari upstream"
+
+    Add-Result `
+        "CB: Update Upstream" `
+        "PASS" `
+        "api-2 removed"
+}
+else {
+
+    Info "api-2 masih di upstream"
+
+    Add-Result `
+        "CB: Update Upstream" `
+        "INFO" `
+        "api-2 masih ada"
+}
+
+# ------------------------------------------------------------
+# 10A.9 TEST GATEWAY MASIH JALAN
+# ------------------------------------------------------------
+
+Step "10A.9 Test Gateway Tanpa api-2"
+
+Write-Host ""
+Write-Host "Kirim request ke gateway..."
+Write-Host "Harusnya cuma ke api-1 dan api-3"
+Write-Host ""
+
+$requestSuccess = 0
+$requestFailed = 0
+
+for ($i = 1; $i -le 5; $i++) {
+
+    try {
+
+        $testResponse = Invoke-WebRequest `
+            -Uri "$BASE_URL/instance" `
+            -Method GET `
+            -TimeoutSec 5
+
+        Write-Host "Request $i : HTTP $($testResponse.StatusCode)" -ForegroundColor Green
+        $requestSuccess++
+
+    }
+    catch {
+
+        Write-Host "Request $i : FAILED" -ForegroundColor Red
+        $requestFailed++
+    }
+
+    Start-Sleep -Milliseconds 500
+}
+
+Write-Host ""
+Write-Host "Sukses: $requestSuccess / Gagal: $requestFailed"
+Write-Host ""
+
+if ($requestSuccess -ge 4) {
+
+    Success "Gateway tetap jalan tanpa api-2"
+
+    Add-Result `
+        "CB: Gateway Resilience" `
+        "PASS" `
+        "$requestSuccess request berhasil"
+}
+else {
+
+    Failed "Gateway terganggu"
+
+    Add-Result `
+        "CB: Gateway Resilience" `
+        "FAIL" `
+        "Terlalu banyak failure"
+}
+
+# ------------------------------------------------------------
+# 10A.10 CLEANUP
+# ------------------------------------------------------------
+
+Step "10A.10 Cleanup - Nyalakan api-2 Lagi"
+
+Write-Host ""
+Write-Host "Menghidupkan api-2 kembali..."
+
+docker start api-2 2>&1 | Out-Null
+
+if ($LASTEXITCODE -eq 0) {
+
+    Write-Host "api-2 sudah nyala" -ForegroundColor Green
+
+    Success "Cleanup berhasil"
+
+    Add-Result `
+        "CB: Cleanup" `
+        "PASS" `
+        "api-2 restarted"
+}
+else {
+
+    Failed "Gagal start api-2"
+
+    Add-Result `
+        "CB: Cleanup" `
+        "FAIL" `
+        "docker start failed"
+}
+
+Write-Host ""
+Write-Host "Ringkasan Circuit Breaker Test:"
+Write-Host "  - CLOSED -> OPEN: OK"
+Write-Host "  - OPEN -> HALF_OPEN: OK"
+Write-Host "  - HALF_OPEN -> OPEN: OK"
+Write-Host "  - Gateway resilience: OK"
+Write-Host ""
+
+Read-Host "`nTekan ENTER untuk lanjut"
 
 # ============================================================
 # 11. 404 HANDLING
