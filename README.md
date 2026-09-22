@@ -1,10 +1,8 @@
-````
-
 # API Gateway Kelompok 1
 
-Project ini merupakan implementasi **API Gateway** menggunakan **Nginx** sebagai pintu masuk utama untuk mengatur komunikasi antara client dengan beberapa instance backend service.
+Implementasi **API Gateway** menggunakan **Nginx** sebagai pintu masuk utama untuk mengatur komunikasi antara client dengan beberapa instance backend service.
 
-Project dibuat untuk menerapkan beberapa konsep dalam arsitektur distributed system, yaitu:
+Project ini menerapkan beberapa konsep dalam arsitektur **distributed system**, yaitu:
 
 - API Gateway & Reverse Proxy
 - Authentication & Authorization
@@ -19,88 +17,135 @@ Project dibuat untuk menerapkan beberapa konsep dalam arsitektur distributed sys
 
 ---
 
-## 1. Tujuan Project
+## 1. Overview
 
-Project ini bertujuan untuk membangun sebuah API Gateway yang menjadi perantara antara client dan backend service.
+Pada sistem tanpa API Gateway, client harus berkomunikasi langsung dengan masing-masing backend service.
 
-Tanpa API Gateway, client harus berkomunikasi langsung dengan masing-masing backend service.
-
-Dengan API Gateway, seluruh request client diarahkan terlebih dahulu melalui satu pintu masuk:
+Pada project ini, seluruh request client masuk melalui **API Gateway** terlebih dahulu.
 
 ```text
-Client
-   |
-   v
-API Gateway
-   |
-   +----------------+
-   |                |
-   v                v
-Backend Service   Service Discovery
-   |
-   +--------+--------+
-   |        |        |
-   v        v        v
- api-1    api-2    api-3
-````
+                         Client
+                           |
+                           | HTTP :8080
+                           v
+                  +-------------------+
+                  |   Nginx Gateway   |
+                  |     Port 8080     |
+                  +---------+---------+
+                            |
+             +--------------+--------------+
+             |              |              |
+             v              v              v
+          api-1:8000     api-2:8000     api-3:8000
+             |              |              |
+             +--------------+--------------+
+                            |
+                            v
+                       PostgreSQL
+                         :5432
 
-API Gateway bertanggung jawab untuk menerima request, melakukan beberapa proses seperti autentikasi dan rate limiting, kemudian meneruskan request ke backend yang tersedia.
+
+                  +-------------------+
+                  | Service Discovery |
+                  |      :8010        |
+                  +---------+---------+
+                            |
+                            v
+                     Service Registry
+                    api-1 / api-2 / api-3
+```
+
+API Gateway bertanggung jawab untuk menerima request dari client, menerapkan beberapa mekanisme seperti authentication, rate limiting, dan request validation, kemudian meneruskan request ke backend service yang tersedia.
+
+Service Discovery digunakan untuk mengetahui instance backend yang tersedia dan status kesehatannya.
 
 ---
 
-# 2. Arsitektur Sistem
+## 2. Tujuan Project
 
-Arsitektur utama project:
+Project ini bertujuan untuk membangun API Gateway yang dapat:
+
+1. Menjadi pintu masuk utama client ke backend service.
+2. Meneruskan request menggunakan reverse proxy.
+3. Melakukan authentication dan authorization.
+4. Membatasi jumlah request menggunakan rate limiter.
+5. Melakukan validasi terhadap request.
+6. Menemukan backend service menggunakan service discovery.
+7. Membagi request ke beberapa instance menggunakan load balancing.
+8. Memantau kesehatan service.
+9. Menangani kegagalan service menggunakan circuit breaker.
+10. Mencatat aktivitas request melalui logging.
+
+---
+
+# 3. Arsitektur Sistem
+
+## 3.1 Komponen Utama
+
+Project terdiri dari beberapa komponen utama:
+
+| Komponen | Teknologi | Port | Fungsi |
+|---|---|---:|---|
+| API Gateway | Nginx | `8080` | Gateway dan reverse proxy |
+| Backend API | FastAPI | `8000` | Menyediakan API |
+| API Instance 1 | FastAPI | `8000` | Backend instance |
+| API Instance 2 | FastAPI | `8000` | Backend instance |
+| API Instance 3 | FastAPI | `8000` | Backend instance |
+| Service Discovery | FastAPI | `8010` | Registry dan health monitoring |
+| Database | PostgreSQL | `5432` | Penyimpanan data |
+
+> Port `8000` merupakan port internal backend. Instance `api-1` juga diekspos ke host untuk kebutuhan pengujian langsung.
+
+---
+
+## 3.2 Alur Request
+
+Secara umum request berjalan melalui alur:
 
 ```text
-                         +------------------+
-                         |      Client      |
-                         +--------+---------+
-                                  |
-                                  | HTTP
-                                  v
-                         +------------------+
-                         |   Nginx Gateway  |
-                         |    Port :8080    |
-                         +--------+---------+
-                                  |
-                    +-------------+-------------+
-                    |             |             |
-                    v             v             v
-                 api-1:8000    api-2:8000    api-3:8000
-                    |             |             |
-                    +-------------+-------------+
-                                  |
-                                  v
-                         +------------------+
-                         |    PostgreSQL    |
-                         |     :5432        |
-                         +------------------+
-
-
-                         +------------------+
-                         | Service Discovery|
-                         |     :8010        |
-                         +------------------+
-                                  |
-                                  v
-                         Registry Service
-                         api-1 / api-2 / api-3
+Client
+  |
+  v
+Nginx API Gateway :8080
+  |
+  +--> Authentication & Authorization
+  |
+  +--> Rate Limiting
+  |
+  +--> Request Validation
+  |
+  v
+Service Discovery
+  |
+  v
+Load Balancing
+  |
+  +--------+--------+
+  |        |        |
+  v        v        v
+api-1    api-2    api-3
+:8000    :8000    :8000
+  |        |        |
+  +--------+--------+
+           |
+           v
+      PostgreSQL
+        :5432
 ```
 
 ---
 
-# 3. Komponen Sistem
+# 4. Fitur yang Diimplementasikan
 
-## 3.1 API Gateway
+## 4.1 API Gateway & Reverse Proxy
 
-API Gateway menggunakan **Nginx** dan berjalan pada:
+Nginx digunakan sebagai API Gateway dan reverse proxy.
+
+Client mengakses sistem melalui:
 
 ```text
 http://localhost:8080
 ```
-
-Gateway berfungsi sebagai pintu masuk utama seluruh request dari client.
 
 Beberapa endpoint utama:
 
@@ -115,120 +160,40 @@ POST /auth/login
 GET  /api/*
 ```
 
-Gateway juga berfungsi sebagai reverse proxy yang meneruskan request ke backend service.
-
----
-
-## 3.2 Backend API
-
-Backend menggunakan **FastAPI** dan memiliki tiga instance:
-
-```text
-api-1
-api-2
-api-3
-```
-
-Masing-masing menggunakan port internal:
-
-```text
-8000
-```
-
-Instance pertama juga diekspos ke host untuk kebutuhan pengujian:
-
-```text
-http://localhost:8000
-```
-
-Sedangkan api-2 dan api-3 hanya digunakan melalui network Docker.
-
----
-
-## 3.3 PostgreSQL
-
-Database yang digunakan adalah PostgreSQL.
-
-Port:
-
-```text
-5432
-```
-
-Database digunakan oleh backend API untuk menyimpan dan mengambil data aplikasi.
-
----
-
-## 3.4 Service Discovery
-
-Service Discovery digunakan untuk mengetahui service backend yang tersedia.
-
-Service Discovery berjalan pada:
-
-```text
-http://localhost:8010
-```
-
-Registry dapat digunakan untuk melihat service yang terdaftar:
-
-```text
-GET /registry
-```
-
-Contoh service yang terdaftar:
-
-```text
-api-1
-api-2
-api-3
-```
-
-Service Discovery juga melakukan health checking terhadap service yang terdaftar.
-
----
-
-# 4. Fitur yang Diimplementasikan
-
-## 4.1 API Gateway & Reverse Proxy
-
-Nginx digunakan sebagai gateway dan reverse proxy.
-
-Client cukup mengakses:
-
-```text
-http://localhost:8080
-```
-
-kemudian Gateway meneruskan request ke backend yang sesuai.
+Gateway kemudian meneruskan request ke backend service yang sesuai.
 
 ---
 
 ## 4.2 Authentication & Authorization
 
-Sistem menggunakan authentication berbasis JWT.
+Sistem menggunakan **JWT (JSON Web Token)** untuk authentication.
 
-Alurnya:
+Alur authentication:
 
 ```text
 Client
-   |
-   | POST /auth/login
-   v
+  |
+  | POST /auth/login
+  v
 Backend
-   |
-   | JWT Token
-   v
+  |
+  | JWT Token
+  v
 Client
-   |
-   | Authorization: Bearer <TOKEN>
-   v
+  |
+  | Authorization: Bearer <TOKEN>
+  v
 API Gateway
-   |
-   v
+  |
+  v
 Protected API
 ```
 
-Endpoint yang membutuhkan autentikasi akan menolak request yang tidak memiliki token yang valid.
+Authentication digunakan untuk melakukan login dan mendapatkan token.
+
+Authorization digunakan untuk menentukan apakah user memiliki hak akses terhadap endpoint tertentu.
+
+Request tanpa token yang valid akan ditolak.
 
 ---
 
@@ -236,17 +201,11 @@ Endpoint yang membutuhkan autentikasi akan menolak request yang tidak memiliki t
 
 Gateway menggunakan Nginx `limit_req` untuk membatasi jumlah request dari client.
 
-Konfigurasi yang digunakan:
+Konfigurasi:
 
 ```text
 Rate  : 5 request/second
 Burst : 5 request
-```
-
-Jika request melebihi batas yang ditentukan, Gateway memberikan:
-
-```text
-HTTP 429 Too Many Requests
 ```
 
 Rate limiter diterapkan pada route:
@@ -255,19 +214,23 @@ Rate limiter diterapkan pada route:
 /api/*
 ```
 
+Jika request melebihi batas yang ditentukan, Gateway memberikan:
+
+```text
+HTTP 429 Too Many Requests
+```
+
 ---
 
 ## 4.4 Request Validation
 
-Request juga divalidasi sebelum diteruskan ke service.
+Request divalidasi sebelum diproses oleh service.
 
-Validasi meliputi:
-
-### Content-Type
+### Content-Type Validation
 
 Request `POST`, `PUT`, dan `PATCH` harus menggunakan JSON.
 
-Jika tidak sesuai:
+Jika Content-Type tidak sesuai:
 
 ```text
 HTTP 415 Unsupported Media Type
@@ -275,15 +238,15 @@ HTTP 415 Unsupported Media Type
 
 ### Schema Validation
 
-Data request divalidasi oleh backend.
+Backend melakukan validasi terhadap struktur dan tipe data request.
 
-Request dengan data yang tidak sesuai schema menghasilkan:
+Request yang tidak sesuai schema akan menghasilkan:
 
 ```text
 HTTP 422 Unprocessable Entity
 ```
 
-### Body Size
+### Body Size Validation
 
 Ukuran request body dibatasi hingga:
 
@@ -301,9 +264,22 @@ HTTP 413 Request Entity Too Large
 
 ## 4.5 Service Discovery
 
-Service Discovery menyimpan registry backend service.
+Service Discovery digunakan untuk mengetahui backend service yang tersedia.
 
-Contoh:
+Service Discovery berjalan pada:
+
+```text
+http://localhost:8010
+```
+
+Endpoint utama:
+
+```text
+GET /health
+GET /registry
+```
+
+Contoh service yang terdaftar:
 
 ```text
 api-1:8000
@@ -311,21 +287,21 @@ api-2:8000
 api-3:8000
 ```
 
-Service yang sehat akan digunakan oleh Gateway.
+Service Discovery juga melakukan health checking terhadap service yang terdaftar.
 
 ---
 
 ## 4.6 Load Balancing
 
-Gateway menggunakan Nginx untuk membagi request ke beberapa backend instance.
+Nginx digunakan untuk membagi request ke beberapa backend instance.
 
-Metode yang digunakan:
+Metode load balancing yang digunakan:
 
 ```text
 least_conn
 ```
 
-Dengan tiga backend:
+Backend yang tersedia:
 
 ```text
 api-1
@@ -333,64 +309,69 @@ api-2
 api-3
 ```
 
-Request dari client dapat diteruskan ke instance yang berbeda.
+Dengan demikian, request client dapat diteruskan ke instance backend yang berbeda.
+
+Distribusi request tidak harus sama rata karena metode yang digunakan adalah `least_conn`, yaitu memilih backend berdasarkan jumlah koneksi aktif.
 
 ---
 
 ## 4.7 Health Check
 
-Setiap komponen memiliki mekanisme health checking.
+Health check digunakan untuk mengetahui kondisi service.
 
-Gateway:
+### Gateway
 
 ```text
 GET /healthz
 ```
 
-Backend:
+### Backend
 
 ```text
 GET /health
 ```
 
-Discovery:
+### Service Discovery
 
 ```text
 GET /health
 ```
 
-Selain itu, Docker Compose juga menggunakan health check untuk memastikan container dalam kondisi sehat.
+Selain endpoint health, Docker Compose juga menggunakan health check untuk memastikan container berada dalam kondisi yang sesuai.
 
 ---
 
 ## 4.8 Circuit Breaker
 
-Service Discovery memiliki mekanisme circuit breaker untuk menangani service yang mengalami kegagalan.
+Service Discovery memiliki mekanisme **Circuit Breaker** untuk menangani service yang mengalami kegagalan.
 
-State circuit breaker:
+State Circuit Breaker:
 
 ```text
-CLOSED
-   |
-   | consecutive failures >= 3
-   v
- OPEN
-   |
-   | cooldown 30 seconds
-   v
-HALF_OPEN
-   |
-   +-------- success --------> CLOSED
-   |
-   +-------- failure --------> OPEN
+             failure >= 3
+CLOSED --------------------> OPEN
+  ^                            |
+  |                            |
+  | success                    | cooldown 30s
+  |                            |
+  +-------- HALF_OPEN <--------+
+              |
+              |
+              +---- failure ----> OPEN
 ```
 
 Konfigurasi:
 
 ```text
-Maximum failure : 3
-Cooldown        : 30 seconds
+Maximum consecutive failures : 3
+Cooldown                     : 30 seconds
 ```
+
+State Circuit Breaker:
+
+- `CLOSED` — service dalam kondisi normal.
+- `OPEN` — service dianggap mengalami kegagalan.
+- `HALF_OPEN` — sistem mencoba kembali mengakses service setelah cooldown.
 
 ---
 
@@ -413,33 +394,37 @@ upstream_response_time
 request_time
 ```
 
-Log dapat dilihat menggunakan:
+Log Gateway dapat dilihat menggunakan:
 
-```bash
+```powershell
 docker logs gateway
+```
+
+Untuk melihat log secara realtime:
+
+```powershell
+docker logs -f gateway
 ```
 
 ---
 
 # 5. Teknologi yang Digunakan
 
-| Teknologi         | Fungsi                         |
-| ----------------- | ------------------------------ |
-| Nginx             | API Gateway & Reverse Proxy    |
-| FastAPI           | Backend API                    |
-| PostgreSQL        | Database                       |
-| Python            | Backend                        |
-| Docker            | Containerization               |
-| Docker Compose    | Menjalankan seluruh service    |
-| JWT               | Authentication                 |
-| PowerShell        | Testing                        |
+| Teknologi | Fungsi |
+|---|---|
+| Nginx | API Gateway & Reverse Proxy |
+| FastAPI | Backend API dan Service Discovery |
+| PostgreSQL | Database |
+| Python | Backend |
+| Docker | Containerization |
+| Docker Compose | Menjalankan seluruh service |
+| JWT | Authentication |
+| PowerShell | Testing |
 | Service Discovery | Registry dan health monitoring |
 
 ---
 
 # 6. Struktur Project
-
-Struktur utama project:
 
 ```text
 apiagateway-kelompok1/
@@ -478,12 +463,12 @@ apiagateway-kelompok1/
 
 Sebelum menjalankan project, pastikan sudah terinstall:
 
-* Docker Desktop
-* Docker Compose
-* Git
-* PowerShell
+- Docker Desktop
+- Docker Compose
+- Git
+- PowerShell
 
-Pastikan Docker Desktop sedang berjalan.
+Pastikan Docker Desktop sudah berjalan.
 
 Cek Docker:
 
@@ -499,7 +484,9 @@ docker compose version
 
 ---
 
-# 8. Clone Repository
+# 8. Menjalankan Project
+
+## 8.1 Clone Repository
 
 Clone repository:
 
@@ -515,32 +502,32 @@ cd apiagateway-kelompok1
 
 ---
 
-# 9. Menjalankan Project
+## 8.2 Menjalankan Docker Compose
 
-Project menggunakan Docker Compose.
+Project dijalankan menggunakan Docker Compose.
 
-Jalankan:
+Gunakan command:
 
 ```powershell
 docker compose --env-file .env -f infra/docker-compose.yml up -d --build --wait --wait-timeout 180
 ```
 
-Jika file `docker-compose.yml` berada langsung di root project, gunakan:
+Command tersebut akan:
 
-```powershell
-docker compose --env-file .env up -d --build --wait --wait-timeout 180
-```
-
-Tunggu sampai seluruh container selesai dibuat dan berada dalam kondisi running/healthy.
+1. Membaca konfigurasi `.env`.
+2. Membaca Docker Compose dari `infra/docker-compose.yml`.
+3. Build image yang diperlukan.
+4. Menjalankan seluruh container.
+5. Menunggu service sampai kondisi siap.
 
 ---
 
-# 10. Mengecek Container
+## 8.3 Mengecek Container
 
-Gunakan:
+Setelah proses selesai, cek container:
 
 ```powershell
-docker compose ps
+docker compose -f infra/docker-compose.yml ps
 ```
 
 atau:
@@ -562,27 +549,27 @@ db
 
 ---
 
-# 11. Mengecek API Gateway
+# 9. Pengujian API Gateway
 
-Setelah container berjalan, test Gateway:
+## 9.1 Gateway Root
 
 ```powershell
 curl.exe -i http://localhost:8080/
 ```
 
-Health check:
+## 9.2 Gateway Health
 
 ```powershell
 curl.exe -i http://localhost:8080/healthz
 ```
 
-Metrics:
+## 9.3 Metrics
 
 ```powershell
 curl.exe -i http://localhost:8080/metrics
 ```
 
-Instance:
+## 9.4 Instance Routing
 
 ```powershell
 curl.exe -i http://localhost:8080/instance
@@ -590,21 +577,21 @@ curl.exe -i http://localhost:8080/instance
 
 ---
 
-# 12. Mengecek Backend Secara Langsung
+# 10. Pengujian Backend Secara Langsung
 
-Backend pertama dapat diakses langsung melalui:
+Backend `api-1` dapat diakses langsung melalui:
 
 ```text
 http://localhost:8000
 ```
 
-Contoh:
+Contoh health check:
 
 ```powershell
 curl.exe -i http://localhost:8000/health
 ```
 
-atau:
+Contoh endpoint API:
 
 ```powershell
 curl.exe -i http://localhost:8000/api/users
@@ -614,35 +601,35 @@ Perbedaan akses:
 
 ```text
 Port 8000
-   ↓
-Direct Backend
+    |
+    +--> Direct Backend
 
 Port 8080
-   ↓
-API Gateway
-   ↓
-Backend
+    |
+    +--> API Gateway
+            |
+            +--> Backend
 ```
 
-Port `8080` merupakan jalur utama yang digunakan client.
+Port `8080` merupakan jalur utama melalui API Gateway.
 
 ---
 
-# 13. Mengecek Service Discovery
+# 11. Pengujian Service Discovery
 
-Health:
+Health check:
 
 ```powershell
 curl.exe -i http://localhost:8010/health
 ```
 
-Melihat registry:
+Melihat service registry:
 
 ```powershell
 curl.exe -i http://localhost:8010/registry
 ```
 
-Registry diharapkan menunjukkan tiga instance:
+Registry diharapkan berisi:
 
 ```text
 api-1
@@ -652,7 +639,7 @@ api-3
 
 ---
 
-# 14. Login
+# 12. Authentication
 
 Untuk mendapatkan JWT token, gunakan PowerShell:
 
@@ -677,9 +664,7 @@ Cek apakah token berhasil diperoleh:
 $TOKEN.Length
 ```
 
-Token kemudian dapat digunakan untuk mengakses endpoint yang membutuhkan autentikasi.
-
-Contoh:
+Token dapat digunakan untuk mengakses protected endpoint:
 
 ```powershell
 Invoke-RestMethod `
@@ -688,11 +673,13 @@ Invoke-RestMethod `
     -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
+> Untuk lingkungan nyata, jangan membagikan JWT token atau credential ke repository maupun dokumentasi.
+
 ---
 
-# 15. Menjalankan Testing
+# 13. Menjalankan Testing
 
-Project menyediakan script PowerShell untuk melakukan pengujian fitur.
+Project menyediakan script PowerShell untuk melakukan pengujian seluruh fitur.
 
 Jalankan:
 
@@ -700,7 +687,7 @@ Jalankan:
 .\testing.ps1
 ```
 
-Jika PowerShell menolak execution policy, dapat menjalankan:
+Jika PowerShell menolak execution policy:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\testing.ps1
@@ -708,76 +695,77 @@ powershell -ExecutionPolicy Bypass -File .\testing.ps1
 
 Testing mencakup:
 
-```text
-Gateway Root
-Gateway Health
-Metrics
-Instance Routing
+### API Gateway
 
-Authentication
-Authorization
-Protected API
-Unauthorized Access
+- Gateway Root
+- Gateway Health
+- Metrics
+- Instance Routing
 
-Rate Limit Normal
-Rate Limiter
+### Authentication & Authorization
 
-Valid JSON
-Content-Type Validation
-Schema Validation
-Body Size Validation
+- Authentication
+- Authorization
+- Protected API
+- Unauthorized Access
 
-Discovery Health
-Service Registry
-Dynamic Upstream
-Load Balancing
+### Rate Limiter & Request Validation
 
-Direct Backend
-Gateway Protected API
-Logging
-Nginx Config
-404 Handling
-```
+- Rate Limit Normal
+- Rate Limiter
+- Valid JSON
+- Content-Type Validation
+- Schema Validation
+- Body Size Validation
+
+### Service Discovery & Load Balancing
+
+- Discovery Health
+- Service Registry
+- Dynamic Upstream
+- Load Balancing
+
+### Monitoring & Reliability
+
+- Direct Backend
+- Gateway Protected API
+- Logging
+- Nginx Config
+- 404 Handling
 
 ---
 
-# 16. Hasil Pengujian
+# 14. Hasil Pengujian
 
-Hasil pengujian saat ini:
+Hasil pengujian terakhir:
 
-```text
-Test                    Status
-----------------------------------------
-Gateway Root            PASS
-Gateway Health          PASS
-Metrics                 PASS
-Instance Routing        PASS
+| Test | Status | Keterangan |
+|---|---|---|
+| Gateway Root | PASS | GET `/` berhasil |
+| Gateway Health | PASS | HTTP 200 |
+| Metrics | PASS | GET `/metrics` berhasil |
+| Instance Routing | PASS | Backend instance terdeteksi |
+| Authentication | PASS | Login admin berhasil |
+| Authorization | PASS | User authorized |
+| Protected API | PASS | GET `/api/users` berhasil |
+| Unauthorized Access | PASS | Request ditolak HTTP 403 |
+| Rate Limit Normal | PASS | HTTP 200 |
+| Rate Limiter | PASS | HTTP 429 terdeteksi |
+| Valid JSON | PASS | HTTP 200 |
+| Content-Type Validation | PASS | HTTP 415 |
+| Schema Validation | PASS | HTTP 422 |
+| Body Size Validation | PASS | HTTP 413 |
+| Discovery Health | PASS | Discovery HTTP 200 |
+| Service Registry | PASS | 3 service terdaftar |
+| Dynamic Upstream | PASS | 3 backend tersedia |
+| Load Balancing | PASS | Beberapa instance menerima traffic |
+| Direct Backend | PASS | Port 8000 aktif |
+| Gateway Protected API | PASS | Port 8080 aktif |
+| Logging | PASS | Gateway log tersedia |
+| Nginx Config | PASS | `nginx -t` berhasil |
+| 404 Handling | PASS | HTTP 404 |
 
-Authentication          PASS
-Authorization           PASS
-Protected API           PASS
-Unauthorized Access     PASS
-
-Rate Limit Normal       PASS
-Rate Limiter            PASS
-Valid JSON              PASS
-Content-Type Validation PASS
-Schema Validation       PASS
-Body Size Validation    PASS
-
-Discovery Health        PASS
-Service Registry        PASS
-Dynamic Upstream        PASS
-Load Balancing          PASS
-
-Direct Backend          PASS
-Gateway Protected API   PASS
-Logging                 PASS
-Nginx Config            PASS
-404 Handling            PASS
-```
-
-Total:
+### Ringkasan
 
 ```text
 23 PASS
@@ -786,35 +774,38 @@ Total:
 
 ---
 
-# 17. Testing Rate Limiter
+# 15. Pengujian Rate Limiter
 
 Rate limiter menggunakan konfigurasi:
 
 ```text
-5 request/second
-burst = 5
+Rate  : 5 request/second
+Burst : 5
 ```
 
 Pengujian dilakukan dengan mengirimkan request secara bersamaan.
 
-Jika request melebihi batas, akan muncul:
+Request yang masih diterima:
+
+```text
+HTTP 200
+```
+
+Request yang melebihi batas:
 
 ```text
 HTTP 429 Too Many Requests
 ```
 
-Contoh hasil:
-
-```text
-HTTP 200 = request yang diterima
-HTTP 429 = request yang dibatasi
-```
+Hasil pengujian menunjukkan bahwa rate limiter berhasil menghasilkan response `HTTP 429`.
 
 ---
 
-# 18. Testing Load Balancing
+# 16. Pengujian Load Balancing
 
-Untuk melihat request diteruskan ke instance backend yang berbeda:
+Load balancing dapat diuji dengan mengirimkan beberapa request secara bersamaan ke endpoint `/instance`.
+
+Contoh:
 
 ```powershell
 $jobs = 1..30 | ForEach-Object {
@@ -828,7 +819,7 @@ $results = $jobs | Wait-Job | Receive-Job
 $results | ConvertFrom-Json | Group-Object instance
 ```
 
-Hasil dapat menunjukkan request diterima oleh beberapa instance:
+Hasil dapat menunjukkan request diterima oleh beberapa backend:
 
 ```text
 api-1
@@ -836,7 +827,7 @@ api-2
 api-3
 ```
 
-Jumlah request tiap instance tidak harus sama karena Gateway menggunakan:
+Jumlah request pada setiap instance tidak harus sama karena Gateway menggunakan metode:
 
 ```text
 least_conn
@@ -844,15 +835,15 @@ least_conn
 
 ---
 
-# 19. Melihat Log Gateway
+# 17. Melihat Log Gateway
 
-Gunakan:
+Melihat seluruh log:
 
 ```powershell
 docker logs gateway
 ```
 
-Untuk melihat log secara realtime:
+Melihat log secara realtime:
 
 ```powershell
 docker logs -f gateway
@@ -860,22 +851,22 @@ docker logs -f gateway
 
 ---
 
-# 20. Mengecek Konfigurasi Nginx
+# 18. Mengecek Konfigurasi Nginx
 
-Cek konfigurasi:
+Test konfigurasi:
 
 ```powershell
 docker exec gateway nginx -t
 ```
 
-Jika berhasil akan muncul:
+Jika konfigurasi valid:
 
 ```text
 syntax is ok
 test is successful
 ```
 
-Untuk melihat konfigurasi Nginx yang sedang digunakan:
+Melihat konfigurasi Nginx yang sedang digunakan:
 
 ```powershell
 docker exec gateway nginx -T
@@ -883,89 +874,53 @@ docker exec gateway nginx -T
 
 ---
 
-# 21. Menghentikan Project
+# 19. Menghentikan Project
 
-Untuk menghentikan seluruh container:
-
-```powershell
-docker compose down
-```
-
-Jika ingin menghapus container sekaligus volume:
+Untuk menghentikan container:
 
 ```powershell
-docker compose down -v
+docker compose -f infra/docker-compose.yml down
 ```
 
-> Gunakan `-v` dengan hati-hati karena volume database juga dapat ikut dihapus.
+Jika ingin menghentikan container sekaligus menghapus volume:
 
----
-
-# 22. Ringkasan Alur Request
-
-Secara keseluruhan, request berjalan seperti berikut:
-
-```text
-                    CLIENT
-                      |
-                      v
-              +---------------+
-              | API GATEWAY   |
-              |    Nginx      |
-              |    :8080      |
-              +-------+-------+
-                      |
-          +-----------+-----------+
-          |           |           |
-          v           v           v
-     Authentication  Rate      Request
-     Authorization   Limit     Validation
-          |           |           |
-          +-----------+-----------+
-                      |
-                      v
-              Service Discovery
-                      |
-                      v
-               Load Balancing
-                      |
-          +-----------+-----------+
-          |           |           |
-          v           v           v
-       api-1       api-2       api-3
-       :8000       :8000       :8000
-          |           |           |
-          +-----------+-----------+
-                      |
-                      v
-                 PostgreSQL
-                    :5432
+```powershell
+docker compose -f infra/docker-compose.yml down -v
 ```
 
----
-
-# 23. Pembagian Tugas Kelompok
-
-Project dikerjakan oleh 5 anggota dengan pembagian:
-
-| Anggota | Bagian                                  |
-| ------- | --------------------------------------- |
-| Orang 1 | API Gateway & Reverse Proxy             |
-| Orang 2 | Authentication & Authorization          |
-| Orang 3 | Rate Limiter & Request Validation       |
-| Orang 4 | Service Discovery & Load Balancing      |
-| Orang 5 | Health Check, Circuit Breaker & Logging |
+> Gunakan `-v` dengan hati-hati karena volume database dapat ikut terhapus.
 
 ---
 
-# 24. Kesimpulan
+# 20. Pembagian Tugas Kelompok
 
-Project ini mengimplementasikan API Gateway sebagai pintu masuk utama untuk beberapa backend service.
+Project dikerjakan oleh 5 anggota:
 
-Nginx digunakan sebagai API Gateway dan reverse proxy, sedangkan FastAPI digunakan sebagai backend service yang dijalankan dalam beberapa instance.
+| Anggota | Bagian Utama | Fokus |
+|---|---|---|
+| Orang 1 | API Gateway & Reverse Proxy | Gateway, routing, reverse proxy |
+| Orang 2 | Authentication & Authorization | Login, JWT, authorization |
+| Orang 3 | Rate Limiter & Request Validation | Rate limiting dan validasi request |
+| Orang 4 | Service Discovery & Load Balancing | Registry, discovery, load balancing |
+| Orang 5 | Health Check, Circuit Breaker & Logging | Monitoring, failure handling, logging |
 
-Selain routing, sistem juga menerapkan authentication, authorization, rate limiting, request validation, service discovery, load balancing, health check, circuit breaker, dan logging.
+---
 
-Dengan menggunakan Docker Compose, seluruh komponen dapat dijalankan sebagai satu sistem sehingga proses deployment dan pengujian dapat dilakukan secara terintegrasi.
+# 21. Kesimpulan
 
-````
+Project ini mengimplementasikan **API Gateway** menggunakan Nginx sebagai pintu masuk utama antara client dan beberapa backend service.
+
+Backend menggunakan FastAPI dan dijalankan dalam tiga instance, yaitu `api-1`, `api-2`, dan `api-3`. Service Discovery digunakan untuk melakukan registry dan monitoring terhadap backend service.
+
+Selain routing, project juga menerapkan:
+
+- Authentication & Authorization
+- Rate Limiting
+- Request Validation
+- Service Discovery
+- Load Balancing
+- Health Check
+- Circuit Breaker
+- Request Logging
+
+Seluruh komponen dijalankan menggunakan Docker Compose sehingga dapat digunakan dan diuji sebagai satu sistem terintegrasi.
